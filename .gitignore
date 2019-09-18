@@ -3,3 +3,5 @@ ipch
 *.vcxproj
 *.filters
 Debug
+*.opendb
+\.vs
