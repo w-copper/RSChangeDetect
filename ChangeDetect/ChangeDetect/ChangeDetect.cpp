@@ -152,8 +152,17 @@ Mat &createLineElement(int d, int s) {
 	}
 }
 
-Mat &computeWTH(Mat &src, int d, int s) {
+Mat &D_g(Mat &src, int n, Mat &b, Mat &g) {
+	if (n == 0) {
+		return src;
+	}
+	if (n == 1) {
+		//cv::min()
+	}
+}
 
+Mat &computeWTH(Mat &src, int d, int s) {
+//http://www.pianshen.com/article/388421804/
 }
 Mat &computeDMBP(Mat &src, int d, int s, int ds) {
 
