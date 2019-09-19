@@ -8,10 +8,13 @@
 #include "opencv2/imgproc.hpp"
 #include "gdal_priv.h"
 
+#define  PI 3.1415926
+#define LOG 1
+#define D2R(d) (d) * PI / 180.0
 using namespace cv;
 
-Mat &computeWTH(Mat &src, int d, int s);
-Mat &computeDMBP(Mat &src, int d, int s, int ds);
+void computeWTH(Mat &src, int d, int s, Mat&);
+void computeDMBP(Mat &src, int d, int s, int ds, Mat&);
 int main()
 {
 	GDALAllRegister();
@@ -23,7 +26,10 @@ int main()
 	/************************************************************************/
 	GDALDataset  *poDataset;
 	poDataset = (GDALDataset *)GDALOpen(pszFilename, GA_ReadOnly);
-	int Width = poDataset->GetRasterXSize();
+	if (LOG) {
+		cout << "打开图像" <<endl;
+	}
+	int Width =  poDataset->GetRasterXSize();
 	int Height = poDataset->GetRasterYSize();
 	int Bands = poDataset->GetRasterCount();
 	GDALRasterBand  *poBand;
@@ -44,7 +50,9 @@ int main()
 			poBand->RasterIO(GF_Read, 0, 0, Width, Height, pBand[i], Width, Height, GDT_UInt16, 0, 0);
 		}
 	}
-	
+	if (LOG) {
+		cout << "读取图像" << endl;
+	}
 	//get light img / anti-water img
 	Mat_<unsigned short> predImg(Height, Width);
 	//predImg.data = new unsigned short[Width * Height];
@@ -67,21 +75,31 @@ int main()
 	delete[] pBand;
 	pBand = nullptr;
 	GDALClose(poDataset);
+	if (LOG) {
+		cout << "计算亮度" << endl;
+	}
 	//get embi
 	const int DARR[11] = {0, 5, 10, 15, 20, 30, 45, 60, 70, 80, 90 };
 	const int SARR[4] = { 5, 10, 15, 20 };
 	const int DS = 3;
-	Mat_<float> embi(Width, Height, 0.0f);
-
+	Mat_<float> embi(Height, Width, 0.0f), dmp(Height, Width, 0.0f);
+	embi += dmp;
 	for (int d = 0; d < 11; d++) {
 		for (int s = 0; s < 4; s++) {
-			embi += computeDMBP(predImg, d, s, DS);
+			computeDMBP(predImg, DARR[d], SARR[s], DS, dmp);
+			if (LOG) {
+				cout << "s" << SARR[s] << "," << "d" << DARR[d]<< endl;
+			}
+			embi += dmp;
 		}
 	}
-	embi /= 4 * 11 * 1.0f;
-
+	
+	embi *= 1 / (4 * 11 * 1.0f);
+	if (LOG) {
+		cout << "计算EMBI" << endl;
+	}
 	//thresold
-	Mat_<uchar> BinaryImg(Width, Height, (uchar)0);
+	Mat_<uchar> BinaryImg(Height, Width, (uchar)0);
 	float MinMax[2] = { embi(0,0), embi(0,0) };
 	for (int r = 0; r < Height; r++) {
 		for (int c = 0; c < Width; c++) {
@@ -95,7 +113,9 @@ int main()
 		}
 	}
 	adaptiveThreshold(BinaryImg, BinaryImg, 255, ADAPTIVE_THRESH_GAUSSIAN_C, THRESH_BINARY, 7, 1);
-
+	if (LOG) {
+		cout << "阈值处理" << endl;
+	}
 	//post processing
 	//img save and show and relase
 	imwrite("../embi.tif", embi);
@@ -106,64 +126,136 @@ int main()
 	namedWindow("binary");
 	imshow("binary", BinaryImg);
 	BinaryImg.release();
+	waitKey(0);
 
     return 0;
 }
 
-Mat &createStrictLineElement(int d, int s) {
+void createStrictLineElement(int d, int s, Mat &e ) {
 	assert(d >= 0 && d <= 45);
 	assert(s >= 2);
-	int width = int(s * cos(d * 1.0) + 0.5);
-	int height = int(s * sin(d*1.0) + 0.5 );
-	Mat_<uchar> e(width, height, (uchar)0);
-	double k = tan(d);
+	int width = int(s * cos(D2R(d*1.0)) + 0.5) +1;
+	int height = int(s * sin(D2R(d*1.0)) + 0.5 ) +1;
+	Mat_<uchar> ee(width, height, (uchar)0);
+	double k = tan(D2R(d));
 	for (int i = 0; i < width; i++) {
 		int j = int(round(k * i));
-		if (j >= height) j = height;
-		e(i, j) = 1;
+		if (j >= height) j = height -1;
+		ee(i, j) = 1;
 	}
-	return e;
+	e = ee;
 }
 
-Mat &createLineElement(int d, int s) {
+void createLineElement(int d, int s, Mat &e) {
 	if (s <= 1) {
-		return Mat_<uchar>(1, 1, (uchar)1);
+		e = Mat_<uchar>(1, 1, (uchar)1);
 	}
 	while (d >= 180) {
 		d -= 180;
 	}
 
 	if (d <= 45) {
-		return createStrictLineElement(d, s);
+		createStrictLineElement(d, s, e);
 	}
 	else if (d <= 90) {
-		Mat e = createStrictLineElement(d - 45, s).t();
-		return e;
+		createStrictLineElement(d - 45, s, e);
+		e = e.t();
 	}
 	else if (d <= 135) {
-		Mat e = createStrictLineElement(180 - d, s).t();
+		createStrictLineElement(180 - d, s, e);
+		e = e.t();
 		flip(e, e, 0);
-		return e;
 	}
 	else {
-		Mat e = createStrictLineElement(180 - d, s);
+		createStrictLineElement(180 - d, s, e);
 		flip(e, e, 0);
-		return e;
 	}
 }
 
-Mat &D_g(Mat &src, int n, Mat &b, Mat &g) {
+void D_g(Mat &src, int n, Mat &kernel, Mat &ground, Mat &d) {
 	if (n == 0) {
-		return src;
+		d = src;
+		return;
 	}
 	if (n == 1) {
-		//cv::min()
+		dilate(src, d, kernel);
+		d = cv::min(d, ground);
+		return;
 	}
+	Mat dd;
+	D_g(src, n - 1, kernel, ground, dd);
+	D_g(dd, 1, kernel, ground, d);
 }
 
-Mat &computeWTH(Mat &src, int d, int s) {
-//http://www.pianshen.com/article/388421804/
+void E_g(Mat &src, int n, Mat &kernel, Mat &ground, Mat &d) {
+	if (n == 0) {
+		d = src;
+	}
+	if (n == 1) {
+		erode(src, d, kernel);
+		d = cv::max(d, ground);
+		return;
+	}
+	Mat dd;
+	E_g(src, n - 1, kernel, ground, dd);
+	E_g(dd, 1, kernel, ground, d);
+	//return E_g(E_g(src, n - 1, b, g), 1, b, g);
 }
-Mat &computeDMBP(Mat &src, int d, int s, int ds) {
 
+void OpenReconstruct(Mat &src, Mat&ekernel, Mat&gkernel, Mat&d) {
+	Mat newImg;
+	Mat f;
+	erode(src, f, ekernel);
+	while (true)
+	{
+		D_g(f, 1, gkernel, src, newImg);
+		Mat diff;
+		absdiff(newImg, f, diff);
+		if (sum(diff)(0) <= 1e-3) {
+			d = newImg;
+			return;
+			break;
+		}
+		f = newImg;
+	}
+	d = src;
+}
+
+void CloseReconstruct(Mat &src, Mat&dkernel, Mat&gkernel, Mat&d) {
+	Mat newImg;
+	Mat f;
+	dilate(src, f, dkernel);
+	while (true)
+	{
+		E_g(f, 1, gkernel, src, newImg);
+		Mat diff;
+		absdiff(newImg, f, diff);
+		if (sum(diff)(0) <= 1e-3) {
+			d = newImg;
+			return;
+			break;
+		}
+		f = newImg;
+	}
+	d = src;
+}
+
+void computeWTH(Mat &src, int d, int s, Mat &dst) {
+	Mat e;
+	createLineElement(d, s, e);
+	Mat closeR;
+	CloseReconstruct(src, e, e, closeR);
+	Mat openR;
+	OpenReconstruct(closeR, e, e, openR);
+	dst = closeR - openR;
+	return;
+}
+void computeDMBP(Mat &src, int d, int s, int ds, Mat &dst) {
+	Mat mp1;
+	computeWTH(src, d, s, mp1);
+	Mat mp2;
+	computeWTH(src, d, s + ds, mp2);
+	Mat dd;
+	absdiff(mp1, mp2, dd);
+	dd.convertTo(dst, CV_32F);
 }
