@@ -15,8 +15,39 @@ using namespace cv;
 
 void computeWTH(Mat &src, int d, int s, Mat&);
 void computeDMBP(Mat &src, int d, int s, int ds, Mat&);
+void reThresold() {
+	Mat oldembi = imread("../embi.tif");
+	int Height = oldembi.rows;
+	int Width = oldembi.cols;
+	Mat_<uchar> BinaryImg(Height, Width, (uchar)0);
+	float MinMax[2] = { oldembi.at<uchar>(0,0), oldembi.at<uchar>(0,0) };
+	for (int r = 0; r < Height; r++) {
+		for (int c = 0; c < Width; c++) {
+			MinMax[0] = MinMax[0] > oldembi.at<uchar>(r, c) ? oldembi.at<uchar>(r, c) : MinMax[0];
+			MinMax[1] = MinMax[1] < oldembi.at<uchar>(r, c) ? oldembi.at<uchar>(r, c) : MinMax[1];
+		}
+	}
+	for (int r = 0; r < Height; r++) {
+		for (int c = 0; c < Width; c++) {
+			BinaryImg(r, c) = uchar((oldembi.at<uchar>(r, c) - MinMax[0]) / (MinMax[1] - MinMax[0]) * 255);
+		}
+	}
+	
+	
+	if (LOG) {
+		cout << "阈值处理" << endl;
+	}
+	namedWindow("thresold");
+	imshow("thresold", BinaryImg);
+	imwrite("../binary.tif", BinaryImg);
+	waitKey(0);
+	BinaryImg.release();
+	return;
+}
 int main()
 {
+	//reThresold();
+	//return 0;
 	GDALAllRegister();
 	CPLSetConfigOption("GDAL_FILENAME_IS_UTF8", "NO");
 	char * pszFilename = "zy-3-wd.img";
@@ -55,20 +86,24 @@ int main()
 	}
 	//get light img / anti-water img
 	Mat_<unsigned short> tempImg(Height, Width);
+	Mat_<float> NDVI(Height, Width);
+	Mat_<float> NDWI(Height, Width);
 	//predImg.data = new unsigned short[Width * Height];
 	float max_ = 0, min_ = 65535;
 	for (int r = 0; r < Height; r++) {
 		for (int c = 0; c < Width; c++) {
+			NDVI(r, c) = 1.0 * (pBand[3][r * Width + c]  - pBand[2][r * Width + c]) / (pBand[3][r * Width + c] + pBand[2][r * Width + c] + 1e-5);
+			NDWI(r, c) = 1.0 * (pBand[1][r * Width + c] - pBand[3][r * Width + c]) / (pBand[1][r * Width + c] + pBand[3][r * Width + c] + 1e-5);
 			uint16_t m = pBand[0][r*Width + c];
 			for (int l = 1; l < Bands; l++) {
 				int v = pBand[l][r*Width + c];
 				if (v > m) {
 					m = v;
 				}
-				tempImg(r,c) = m;
-				max_ = max_ < m ? m : max_;
-				min_ = min_ > m ? m : min_;
 			}
+			tempImg(r, c) = m;
+			max_ = max_ < m ? m : max_;
+			min_ = min_ > m ? m : min_;
 		}
 	}
 	Mat_<unsigned char> predImg(Height, Width);
@@ -85,8 +120,8 @@ int main()
 		cout << "计算亮度" << endl;
 	}
 	//get embi
-	const int DARR[] = {0, 5, 10, 15, 20, 30, 45, 60, 70, 80, 90, 95, 100, 110, 120, 130, 140, 145, 150, 160, 165, 170, 175 };
-	const int SARR[] = { 5, 10, 15, 20, 25 };
+	const int DARR[] = {0, 5, 10, 15, 20, 30, 45, 60, 70, 80, 90, 95, 100, 110, 120, 130, 135, 140, 145, 150, 160, 165, 170, 175 };
+	const int SARR[] = { 5, 10, 15, 20, 25, 30 };
 	const int DS = 5;
 	int DCount = sizeof(DARR) / sizeof(DARR[0]);
 	int SCount = sizeof(SARR) / sizeof(SARR[0]);
@@ -120,11 +155,27 @@ int main()
 			BinaryImg(r, c) = uchar((embi(r, c) - MinMax[0]) / (MinMax[1] - MinMax[0]) * 255);
 		}
 	}
-	adaptiveThreshold(BinaryImg, BinaryImg, 255, ADAPTIVE_THRESH_GAUSSIAN_C, THRESH_BINARY, 7, 1);
+	threshold(BinaryImg, BinaryImg, 0, 255, CV_THRESH_OTSU);
+	//adaptiveThreshold(BinaryImg, BinaryImg, 255, ADAPTIVE_THRESH_MEAN_C, THRESH_BINARY, 7, 50);
 	if (LOG) {
 		cout << "阈值处理" << endl;
 	}
+
 	//post processing
+
+	for (int r = 0; r < Height; r++) {
+		for (int c = 0; c < Width; c++) {
+			if (NDVI(r, c) > 0.1) {
+				BinaryImg(r, c) = 0;
+			}
+			if (NDWI(r, c) > 0.3) {
+				BinaryImg(r, c) = 0;
+			}
+		}
+	}
+	if (LOG) {
+		cout << "后处理" << endl;
+	}
 	//img save and show and relase
 	imwrite("../embi.tif", embi);
 	namedWindow("embi");
