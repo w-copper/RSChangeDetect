@@ -108,7 +108,13 @@ int main()
 	}
 	Mat_<unsigned char> predImg(Height, Width);
 	tempImg.convertTo(predImg, CV_8U, 255 / (max_ - min_), -min_ / (max_ - min_));
-
+	for (int r = 0; r < Height; r++) {
+		for (int c = 0; c < Width; c++) {
+			if (NDVI(r, c) > 0.1 || NDWI(r, c) > 0.3) {
+				predImg(r, c) = 0;
+			}
+		}
+	}
 	for (int i = 0; i < Bands; i++) {
 		delete[] pBand[i];
 		pBand[i] = nullptr;
