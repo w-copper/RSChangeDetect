@@ -54,8 +54,9 @@ int main()
 		cout << "¶ÁÈ¡Í¼Ïñ" << endl;
 	}
 	//get light img / anti-water img
-	Mat_<unsigned short> predImg(Height, Width);
+	Mat_<unsigned short> tempImg(Height, Width);
 	//predImg.data = new unsigned short[Width * Height];
+	float max_ = 0, min_ = 65535;
 	for (int r = 0; r < Height; r++) {
 		for (int c = 0; c < Width; c++) {
 			uint16_t m = pBand[0][r*Width + c];
@@ -64,10 +65,15 @@ int main()
 				if (v > m) {
 					m = v;
 				}
-				predImg(r,c) = m;
+				tempImg(r,c) = m;
+				max_ = max_ < m ? m : max_;
+				min_ = min_ > m ? m : min_;
 			}
 		}
 	}
+	Mat_<unsigned char> predImg(Height, Width);
+	tempImg.convertTo(predImg, CV_8U, 255 / (max_ - min_), -min_ / (max_ - min_));
+
 	for (int i = 0; i < Bands; i++) {
 		delete[] pBand[i];
 		pBand[i] = nullptr;
@@ -79,16 +85,18 @@ int main()
 		cout << "¼ÆËãÁÁ¶È" << endl;
 	}
 	//get embi
-	const int DARR[11] = {0, 5, 10, 15, 20, 30, 45, 60, 70, 80, 90 };
-	const int SARR[4] = { 5, 10, 15, 20 };
-	const int DS = 3;
+	const int DARR[] = {0, 5, 10, 15, 20, 30, 45, 60, 70, 80, 90, 95, 100, 110, 120, 130, 140, 145, 150, 160, 165, 170, 175 };
+	const int SARR[] = { 5, 10, 15, 20, 25 };
+	const int DS = 5;
+	int DCount = sizeof(DARR) / sizeof(DARR[0]);
+	int SCount = sizeof(SARR) / sizeof(SARR[0]);
 	Mat_<float> embi(Height, Width, 0.0f), dmp(Height, Width, 0.0f);
-	embi += dmp;
-	for (int d = 0; d < 11; d++) {
-		for (int s = 0; s < 4; s++) {
+	for (int d = 0; d < DCount; d++) {
+		for (int s = 0; s < SCount; s++) {
 			computeDMBP(predImg, DARR[d], SARR[s], DS, dmp);
 			if (LOG) {
-				cout << "s" << SARR[s] << "," << "d" << DARR[d]<< endl;
+				cout << "\r                \r" 
+					<< "s" << SARR[s] << "," << "d" << DARR[d]<< "\r";
 			}
 			embi += dmp;
 		}
@@ -158,11 +166,11 @@ void createLineElement(int d, int s, Mat &e) {
 		createStrictLineElement(d, s, e);
 	}
 	else if (d <= 90) {
-		createStrictLineElement(d - 45, s, e);
+		createStrictLineElement(90 - d, s, e);
 		e = e.t();
 	}
 	else if (d <= 135) {
-		createStrictLineElement(180 - d, s, e);
+		createStrictLineElement( d - 90, s, e);
 		e = e.t();
 		flip(e, e, 0);
 	}
