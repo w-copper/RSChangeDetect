@@ -15,39 +15,9 @@ using namespace cv;
 
 void computeWTH(Mat &src, int d, int s, Mat&);
 void computeDMBP(Mat &src, int d, int s, int ds, Mat&);
-void reThresold() {
-	Mat oldembi = imread("../embi.tif");
-	int Height = oldembi.rows;
-	int Width = oldembi.cols;
-	Mat_<uchar> BinaryImg(Height, Width, (uchar)0);
-	float MinMax[2] = { oldembi.at<uchar>(0,0), oldembi.at<uchar>(0,0) };
-	for (int r = 0; r < Height; r++) {
-		for (int c = 0; c < Width; c++) {
-			MinMax[0] = MinMax[0] > oldembi.at<uchar>(r, c) ? oldembi.at<uchar>(r, c) : MinMax[0];
-			MinMax[1] = MinMax[1] < oldembi.at<uchar>(r, c) ? oldembi.at<uchar>(r, c) : MinMax[1];
-		}
-	}
-	for (int r = 0; r < Height; r++) {
-		for (int c = 0; c < Width; c++) {
-			BinaryImg(r, c) = uchar((oldembi.at<uchar>(r, c) - MinMax[0]) / (MinMax[1] - MinMax[0]) * 255);
-		}
-	}
-	
-	
-	if (LOG) {
-		cout << "阈值处理" << endl;
-	}
-	namedWindow("thresold");
-	imshow("thresold", BinaryImg);
-	imwrite("../binary.tif", BinaryImg);
-	waitKey(0);
-	BinaryImg.release();
-	return;
-}
+
 int main()
 {
-	//reThresold();
-	//return 0;
 	GDALAllRegister();
 	CPLSetConfigOption("GDAL_FILENAME_IS_UTF8", "NO");
 	char * pszFilename = "zy-3-wd.img";
@@ -143,7 +113,7 @@ int main()
 		}
 	}
 	
-	embi *= 1 / (4 * 11 * 1.0f);
+	embi *= 1 / (DCount * SCount * 1.0f);
 	if (LOG) {
 		cout << "计算EMBI" << endl;
 	}
@@ -179,6 +149,7 @@ int main()
 			}
 		}
 	}
+	morphologyEx(BinaryImg, BinaryImg, MORPH_OPEN, Mat(3, 3, CV_8U, Scalar(1)));
 	if (LOG) {
 		cout << "后处理" << endl;
 	}
@@ -199,14 +170,14 @@ int main()
 void createStrictLineElement(int d, int s, Mat &e ) {
 	assert(d >= 0 && d <= 45);
 	assert(s >= 2);
-	int width = int(s * cos(D2R(d*1.0)) + 0.5) +1;
-	int height = int(s * sin(D2R(d*1.0)) + 0.5 ) +1;
-	Mat_<uchar> ee(width, height, (uchar)0);
+	int width = round(s * cos(D2R(d*1.0))) +1;
+	int height = round(s * sin(D2R(d*1.0))) +1;
+	Mat_<uchar> ee(height, width, (uchar)0);
 	double k = tan(D2R(d));
 	for (int i = 0; i < width; i++) {
 		int j = int(round(k * i));
 		if (j >= height) j = height -1;
-		ee(i, j) = 1;
+		ee(j, i) = 1;
 	}
 	e = ee;
 }
